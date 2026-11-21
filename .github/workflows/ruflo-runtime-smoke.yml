@@ -1,0 +1,50 @@
+name: Ruflo pinned CLI isolated smoke
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ruflo-runtime-smoke.yml'
+      - 'docs/ruflo-runtime-smoke.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+      GIT_TERMINAL_PROMPT: '0'
+      DO_NOT_TRACK: '1'
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Check Node and npm versions
+        run: |
+          node --version
+          npm --version
+      - name: Install exact Ruflo version without lifecycle scripts in temporary directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ruflo-smoke"
+          npm install --prefix "$RUNNER_TEMP/ruflo-smoke" --ignore-scripts --no-audit --no-fund ruflo@3.80.0
+      - name: Check pinned wrapper and CLI versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e 'const fs=require("node:fs"),p=process.env.RUNNER_TEMP;for(const n of ["ruflo","@claude-flow/cli"]){const x=JSON.parse(fs.readFileSync(p+"/ruflo-smoke/node_modules/"+n+"/package.json"));if(x.version!=="3.80.0")throw Error(n+" unexpected version: "+x.version);console.log(n+" v"+x.version)}'
+          timeout 30s node "$RUNNER_TEMP/ruflo-smoke/node_modules/ruflo/bin/ruflo.js" --version | tee /tmp/ruflo-version.txt
+          grep -F 'ruflo v3.80.0' /tmp/ruflo-version.txt
+      - name: Check help command can load without project setup or credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 60s node "$RUNNER_TEMP/ruflo-smoke/node_modules/ruflo/bin/ruflo.js" --help > /tmp/ruflo-help.txt
+          test -s /tmp/ruflo-help.txt
+      - name: Verify sandbox run did not modify repository files
+        run: git diff --exit-code
